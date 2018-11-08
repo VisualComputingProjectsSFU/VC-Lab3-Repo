@@ -247,7 +247,7 @@ tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
   tfScalar last_r;
   tfScalar curr_x;
   tfScalar curr_y;
-  tfScalar curr_t;
+  tfScalar curr_r;
   float sum_1_x ;
   float sum_2_x ;
   float mean_1_x ;
@@ -259,7 +259,7 @@ tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
   int match_idx;
   int i;
   float dist_thres;
-  tf::Transform transformed_point_mat2_;
+  cv::Mat transformed_point_mat2_;
   cv::Mat x_mean=cv::Mat(2,1,CV_32F);
   cv::Mat p_mean=cv::Mat(2,1,CV_32F); 
   
@@ -294,39 +294,39 @@ tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
     for(i=0;i<vec_size;i++)
     {
       ///distance less than threshold or when indices are valid or any one xs are not 0.0(special case less than range_min) are added to a new matrix
-      if(closest_distances_2[i]<dist_thres || closest_indices[i] != -1 || point_mat1_[i][0]!=0.0||point_mat2_[closest_indices[i]]!=0.0)
+      if(closest_distances_2[i]<dist_thres || closest_indices[i] != -1 || point_mat1_.at<float>(i,0)!=0.0||point_mat2_.at<float>(closest_indices[i],0)!=0.0)
       {
         if(match_idx==0)
         {
-          inlier_mat1.at<float>(0,0) = point_mat1_[i][0];
-          sum_1_x = sum_1_x+point_mat1_[i][0];
+          inlier_mat1.at<float>(0,0) = point_mat1_.at<float>(i,0);
+          sum_1_x = sum_1_x+point_mat1_.at<float>(i,0);
           
-          inlier_mat1.at<float>(0,1) = point_mat1_[i][1];
-          sum_1_y=sum_1_y+point_mat1_[i][1];
+          inlier_mat1.at<float>(0,1) = point_mat1_.at<float>(i,1);
+          sum_1_y=sum_1_y+point_mat1_.at<float>(i,1);
 
 
-          inlier_mat2.at<float>(0,0) = point_mat2_[closest_indices[i]][0];
-          sum_2_x=sum_2_x+point_mat2_[closest_indices[i]][0];
+          inlier_mat2.at<float>(0,0) = point_mat2_.at<float>(closest_indices[i],0);
+          sum_2_x=sum_2_x+point_mat2_.at<float>(closest_indices[i],0);
           
-          inlier_mat2.at<float>(0,1) = point_mat2_[closest_indices[i]][1];
-          sum_2_y=sum_2_y+point_mat2_[closest_indices[i]][1];
+          inlier_mat2.at<float>(0,1) = point_mat2_.at<float>(closest_indices[i],1);
+          sum_2_y=sum_2_y+point_mat2_.at<float>(closest_indices[i],1);
 
         }
         else
         {
-          inlier_xy_mat.at<float>(0,0) = point_mat1_[i][0];
-          sum_1_x = sum_1_x+point_mat1_[i][0];
+          inlier_xy_mat.at<float>(0,0) = point_mat1_.at<float>(i,0);
+          sum_1_x = sum_1_x+point_mat1_.at<float>(i,0);
 
-          inlier_xy_mat.at<float>(0,1) = point_mat1_[i][1];
-          sum_1_y=sum_1_y+point_mat1_[i][1];
+          inlier_xy_mat.at<float>(0,1) = point_mat1_.at<float>(i,1);
+          sum_1_y=sum_1_y+point_mat1_.at<float>(i,1);
 
           inlier_mat1.push_back(inlier_xy_mat);
 
-          inlier_xy_mat.at<float>(0,0) = point_mat2_[closest_indices[i]][0];
-          sum_2_x=sum_2_x+point_mat2_[closest_indices[i]][0];
+          inlier_xy_mat.at<float>(0,0) = point_mat2_.at<float>(closest_indices[i],0);
+          sum_2_x=sum_2_x+point_mat2_.at<float>(closest_indices[i],0);
 
-          inlier_xy_mat.at<float>(0,1) = point_mat2_[closest_indices[i]][1];
-          sum_2_y=sum_2_y+point_mat2_[closest_indices[i]][1];
+          inlier_xy_mat.at<float>(0,1) = point_mat2_.at<float>(closest_indices[i],1);
+          sum_2_y=sum_2_y+point_mat2_.at<float>(closest_indices[i],1);
 
           inlier_mat2.push_back(inlier_xy_mat);
         }
@@ -342,11 +342,11 @@ tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
     icp_mat2=cv::Mat((match_idx-1),2,CV_32F);
     for(i=0;i<match_idx;i++)
     {
-      icp_mat1.at<float>(i,0)=inlier_mat1[i][0]-mean_1_x;
-      icp_mat1.at<float>(i,1)=inlier_mat1[i][1]-mean_1_y;
+      icp_mat1.at<float>(i,0)=inlier_mat1.at<float>(i,0)-mean_1_x;
+      icp_mat1.at<float>(i,1)=inlier_mat1.at<float>(i,1)-mean_1_y;
 
-      icp_mat2.at<float>(i,0)=inlier_mat1[i][0]-mean_2_x;
-      icp_mat2.at<float>(i,1)=inlier_mat1[i][1]-mean_2_y;
+      icp_mat2.at<float>(i,0)=inlier_mat2.at<float>(i,0)-mean_2_x;
+      icp_mat2.at<float>(i,1)=inlier_mat2.at<float>(i,1)-mean_2_y;
 
     }
 
@@ -360,7 +360,7 @@ tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
     p_mean.at<float>(1,0)= mean_2_y;
 
 
-    tf::transform T_2_1 = icpIteration(icp_mat1,icp_mat2,x_mean,p_mean);
+    tf::Transform T_2_1 = icpIteration(icp_mat1,icp_mat2,x_mean,p_mean);
 
     last_x = last_T_2_1.getOrigin().getX();
     last_y = last_T_2_1.getOrigin().getY();
@@ -370,7 +370,7 @@ tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
     curr_y = T_2_1.getOrigin().getY();
     curr_r = tf::getYaw(T_2_1.getRotation()) * 180/M_PI;
 
-    if (last_x == curr_x && last_y =curr_y && last_r==curr_r)
+    if (last_x == curr_x && last_y ==curr_y && last_r==curr_r)
     {
       return T_2_1;
     }
@@ -393,13 +393,17 @@ tf::Transform ICPSlam::icpIteration(cv::Mat &point_mat1,
 
   cv::SVD svd(W);
 
-  auto R_matrix = svd.u*svd.vt;
-  auto T_matrix = x_mean-(R*p_mean);
+  cv::Mat R_matrix = svd.u*svd.vt;
+  cv::Mat T_matrix = x_mean-(R_matrix*p_mean);
 
-  auto rotation_angle = std::atan2(R_matrix[1][0],R_matrix[0][0]);
+  auto rotation_angle = std::atan2(R_matrix.at<float>(1,0),R_matrix.at<float>(0,0));
 
-  
-  
+  tf::Transform new_T_2_1;
+
+  new_T_2_1.setOrigin(tf::Vector3(T_matrix.at<float>(0,0),T_matrix.at<float>(1,0),0));
+  new_T_2_1.setRotation(tf::createQuaternionFromYaw(rotation_angle));
+
+  return new_T_2_1;
   
 }
 
