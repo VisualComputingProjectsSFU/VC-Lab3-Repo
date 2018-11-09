@@ -61,15 +61,15 @@ namespace icp_slam
 
     /**
      *
-     * @param laser_scan1
-     * @param laser_scan2
-     * @param T_2_1 Estimated transform from scan2 to scan1 (T_scan2_scan1).
+     * @param dst_point_mat
+     * @param src_point_mat
+     * @param trans Estimated transform from scan2 to scan1 (T_scan2_scan1).
      * @return Refined T_scan2_scan1.
      */
     static tf::Transform icpRegistration(
-      const sensor_msgs::LaserScanConstPtr &laser_scan1,
-      const sensor_msgs::LaserScanConstPtr &laser_scan2,
-      const tf::Transform &T_2_1
+      const cv::Mat &dst_point_mat,
+      const cv::Mat &src_point_mat,
+      const tf::Transform &trans
     );
 
     /**
@@ -81,7 +81,9 @@ namespace icp_slam
      */
     static tf::Transform icpIteration(
       cv::Mat &point_mat1,
-      cv::Mat &point_mat2
+      cv::Mat &point_mat2,
+      cv::Mat &x_mean,
+      cv::Mat &p_mean
     );
 
     /**

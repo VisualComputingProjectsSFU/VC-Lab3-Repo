@@ -70,12 +70,12 @@ namespace icp_slam
     cv::Mat &point_mat1,
     cv::Mat &point_mat2,
     std::vector<int> &closest_indices,
-    std::vector<float> &closest_distances_2)
+    std::vector<float> &closest_distances)
   {
     // Uses FLANN for K-NN e.g. http://www.morethantechnical.com/2010/06/06/
     // iterative-closest-point-icp-with-opencv-w-code/
     closest_indices = std::vector<int>(point_mat1.rows, -1);
-    closest_distances_2 = std::vector<float>(point_mat1.rows, -1);
+    closest_distances = std::vector<float>(point_mat1.rows, -1);
 
 
     cv::Mat multi_channeled_mat1;
@@ -101,7 +101,7 @@ namespace icp_slam
       closest_indices[i] = indices_ptr[i];
     }
 
-    mat_dists.copyTo(cv::Mat(closest_distances_2));
+    mat_dists.copyTo(cv::Mat(closest_distances));
 
     // --------------------------- Naive Version --------------------------- //
     // Max allowed distance between corresponding points
@@ -262,5 +262,74 @@ namespace icp_slam
     cv::Mat tmp;
     cv::flip(img_pad, tmp, 0);
     cv::imwrite("/tmp/viz_closest_points.png", img_pad);
+  }
+
+  tf::Transform ICPSlam::icpRegistration(
+    const cv::Mat &src_point_mat,
+    const cv::Mat &dst_point_mat,
+    const tf::Transform &trans)
+  {
+    assert(dst_point_mat.size == src_point_mat.size);
+    cv::Mat src = src_point_mat;
+    cv::Mat dst = dst_point_mat;
+
+    std::vector<int> closest_indices;
+    std::vector<float> closest_distances;
+
+    // Find correspondences.
+    ICPSlam::closestPoints(src, dst, closest_indices, closest_distances);
+    for (int i = 0; i < (size_t)src.rows; i++)
+    {
+      if (closest_indices.at(i) != i)
+      {
+        src.at<float>(i) = dst.at<float>(closest_indices.at(i));
+      }
+    }
+
+    // Compute transformation.
+    cv::Scalar src_mean_x = cv::mean(src.col(0));
+    cv::Scalar src_mean_y = cv::mean(src.col(1));
+    cv::Scalar dst_mean_x = cv::mean(dst.col(0));
+    cv::Scalar dst_mean_y = cv::mean(dst.col(1));
+
+    cv::Mat src_mean = cv::Mat(src.rows, src.cols, CV_32F);
+    src_mean.col(0).setTo(src_mean_x);
+    src_mean.col(1).setTo(src_mean_y);
+
+    cv::Mat dst_mean = cv::Mat(dst.rows, dst.cols, CV_32F);
+    dst_mean.col(0).setTo(dst_mean_x);
+    dst_mean.col(1).setTo(dst_mean_y);
+
+    src -= src_mean;
+    dst -= dst_mean;
+
+    cv::Mat x_mean = cv::Mat(1, 2, CV_32F);
+    cv::Mat p_mean = cv::Mat(1, 2, CV_32F);
+    x_mean.at<float>(0, 0) = src_mean_x[0];
+    x_mean.at<float>(0, 1) = src_mean_y[0];
+    p_mean.at<float>(0, 0) = dst_mean_x[0];
+    p_mean.at<float>(0, 1) = dst_mean_y[0];
+    tf::Transform predicted_trans = icpIteration(src, dst, x_mean, p_mean);
+    return predicted_trans;
+  }
+
+  tf::Transform ICPSlam::icpIteration(
+    cv::Mat &src, 
+    cv::Mat &dst, 
+    cv::Mat &x_mean,
+    cv::Mat &p_mean)
+  {
+    // Compute the W matrix.
+    cv::Mat t;
+    cv::transpose(dst, t);
+    cv::Mat w = t * src;
+
+    // Decompose W and compute rotation and translation.
+    cv::SVD svd(w);
+   // cv::Mat rotation = svd.u * svd.vt;
+   // cv::Mat translation = x_mean - (rotation * p_mean);
+
+   // std::cout << rotation << "\n";
+   // std::cout << translation << "\n";
   }
 }
