@@ -9,6 +9,7 @@
 #include <numeric>
 #include <chrono>
 
+#include <boost/filesystem.hpp>
 #include <boost/atomic/atomic.hpp>
 #include <opencv2/flann/miniflann.hpp>
 
@@ -138,7 +139,8 @@ namespace icp_slam
   void ICPSlam::vizClosestPoints(
     cv::Mat &original_point_mat1,
     cv::Mat &original_point_mat2,
-    const tf::Transform &trans)
+    const tf::Transform &trans,
+    std::string file_path)
   {
     assert(original_point_mat1.size == original_point_mat2.size);
 
@@ -192,7 +194,7 @@ namespace icp_slam
       (int)(img_size * (1 - padding)), 
       CV_8UC3, cv::Scalar(0, 0, 0));
 
-    // Translate both matrices.
+    // Translate both matrices to fit the canvas.
     float content_size = 0;
     float resize_ratio = 0;
     float x_translate = 0;
@@ -261,7 +263,9 @@ namespace icp_slam
       cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
     cv::Mat tmp;
     cv::flip(img_pad, tmp, 0);
-    cv::imwrite("/tmp/viz_closest_points.png", img_pad);
+    boost::filesystem::path dir("/tmp/icp_slam");
+    boost::filesystem::create_directory(dir);
+    cv::imwrite(file_path, img_pad);
   }
 
   tf::Transform ICPSlam::icpRegistration(
@@ -270,47 +274,93 @@ namespace icp_slam
     const tf::Transform &trans)
   {
     assert(dst_point_mat.size == src_point_mat.size);
-    cv::Mat src = src_point_mat;
-    cv::Mat dst = dst_point_mat;
+    float threshold = 0.00000001;
+    float previous_sum = 0;
+    int max_iteration = 50;
+    cv::Mat src_original = src_point_mat.clone();
+    cv::Mat dst_original = dst_point_mat.clone();
+    cv::Mat src = src_point_mat.clone();
+    cv::Mat dst = dst_point_mat.clone();
+    tf::Transform final_trans = trans;
 
     std::vector<int> closest_indices;
     std::vector<float> closest_distances;
 
-    // Find correspondences.
-    ICPSlam::closestPoints(src, dst, closest_indices, closest_distances);
-    for (int i = 0; i < (size_t)src.rows; i++)
+    for (int counter = 0; counter < max_iteration; counter++)
     {
-      if (closest_indices.at(i) != i)
+      // Apply transformation first.
+      src = utils::transformPointMat(final_trans, src_original);
+      cv::Mat dst = dst_point_mat.clone();
+
+      // Find correspondences and set to source.
+      ICPSlam::closestPoints(src, dst, closest_indices, closest_distances);
+      for (int i = 0; i < (size_t)src.rows; i++)
       {
-        src.at<float>(i) = dst.at<float>(closest_indices.at(i));
+        if (closest_indices.at(i) != i)
+        {
+          dst.at<float>(i, 0) = 
+            dst_original.at<float>(closest_indices.at(i), 0);
+          dst.at<float>(i, 1) = 
+            dst_original.at<float>(closest_indices.at(i), 1);
+        }
+      }
+
+      // Compute center of mass.
+      cv::Scalar src_mean_x = cv::mean(src.col(0));
+      cv::Scalar src_mean_y = cv::mean(src.col(1));
+      cv::Scalar dst_mean_x = cv::mean(dst.col(0));
+      cv::Scalar dst_mean_y = cv::mean(dst.col(1));
+
+      cv::Mat src_mean = cv::Mat(src.rows, src.cols, CV_32F);
+      src_mean.col(0).setTo(src_mean_x);
+      src_mean.col(1).setTo(src_mean_y);
+
+      cv::Mat dst_mean = cv::Mat(dst.rows, dst.cols, CV_32F);
+      dst_mean.col(0).setTo(dst_mean_x);
+      dst_mean.col(1).setTo(dst_mean_y);
+
+      cv::Mat x_mean = cv::Mat(2, 1, CV_32F);
+      cv::Mat p_mean = cv::Mat(2, 1, CV_32F);
+      x_mean.at<float>(0, 0) = src_mean_x[0];
+      x_mean.at<float>(1, 0) = src_mean_y[0];
+      p_mean.at<float>(0, 0) = dst_mean_x[0];
+      p_mean.at<float>(1, 0) = dst_mean_y[0];
+
+      // Normailize source and destination.
+      cv::Mat src_normalized = src - src_mean;
+      cv::Mat dst_normalized = dst - dst_mean;
+
+      // Perform ICP.
+      tf::Transform predicted_trans = 
+        icpIteration(src_normalized, dst_normalized, x_mean, p_mean);
+
+      // Transform original source and compare results.
+      cv::Mat src_transformed = 
+        utils::transformPointMat(predicted_trans, src);
+      ICPSlam::closestPoints(
+        src_transformed, dst_original, closest_indices, closest_distances);
+
+      final_trans *= predicted_trans;
+      float sum = std::accumulate(
+        closest_distances.begin(), closest_distances.end(), 0.0);
+      float error = std::abs(sum - previous_sum);
+      previous_sum = sum;
+
+      // Closest distance is large when two sets cannot be matched perfectly.
+      // float error = *std::max_element(
+      //   closest_distances.begin(), closest_distances.end());
+
+      std::stringstream ss;
+      ss << "/tmp/icp_slam/" << std::to_string(counter) << ".png";
+      vizClosestPoints(src_original, dst_original, final_trans, ss.str());
+      if (error < threshold)
+      {
+        return final_trans;
       }
     }
 
-    // Compute transformation.
-    cv::Scalar src_mean_x = cv::mean(src.col(0));
-    cv::Scalar src_mean_y = cv::mean(src.col(1));
-    cv::Scalar dst_mean_x = cv::mean(dst.col(0));
-    cv::Scalar dst_mean_y = cv::mean(dst.col(1));
-
-    cv::Mat src_mean = cv::Mat(src.rows, src.cols, CV_32F);
-    src_mean.col(0).setTo(src_mean_x);
-    src_mean.col(1).setTo(src_mean_y);
-
-    cv::Mat dst_mean = cv::Mat(dst.rows, dst.cols, CV_32F);
-    dst_mean.col(0).setTo(dst_mean_x);
-    dst_mean.col(1).setTo(dst_mean_y);
-
-    src -= src_mean;
-    dst -= dst_mean;
-
-    cv::Mat x_mean = cv::Mat(1, 2, CV_32F);
-    cv::Mat p_mean = cv::Mat(1, 2, CV_32F);
-    x_mean.at<float>(0, 0) = src_mean_x[0];
-    x_mean.at<float>(0, 1) = src_mean_y[0];
-    p_mean.at<float>(0, 0) = dst_mean_x[0];
-    p_mean.at<float>(0, 1) = dst_mean_y[0];
-    tf::Transform predicted_trans = icpIteration(src, dst, x_mean, p_mean);
-    return predicted_trans;
+    ROS_INFO("Max ICP Iteration Reached!\r");
+    return final_trans;
   }
 
   tf::Transform ICPSlam::icpIteration(
@@ -326,10 +376,18 @@ namespace icp_slam
 
     // Decompose W and compute rotation and translation.
     cv::SVD svd(w);
-   // cv::Mat rotation = svd.u * svd.vt;
-   // cv::Mat translation = x_mean - (rotation * p_mean);
+    cv::Mat rotation = svd.u * svd.vt;
+    cv::Mat translation = x_mean - (rotation * p_mean);
 
-   // std::cout << rotation << "\n";
-   // std::cout << translation << "\n";
+    // Return the transformation.
+    tf::Transform trans;
+    trans.setOrigin(tf::Vector3(
+      -translation.at<float>(0), -translation.at<float>(1), 0.0));
+
+    auto rotation_angle = 
+      std::atan2(rotation.at<float>(1, 0), rotation.at<float>(0, 0));
+    trans.setRotation(tf::createQuaternionFromYaw(rotation_angle));
+
+    return trans;
   }
 }

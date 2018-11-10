@@ -4,6 +4,8 @@
  * @file icp_slam_node.cpp
  */
 
+#include <fstream>
+#include <random>
 #include <ros/ros.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <sensor_msgs/LaserScan.h>
@@ -155,38 +157,44 @@ int main(int argc, char **argv)
   // Testing Start.
   icp_slam::ICPSlam slam(NULL, NULL, NULL);
 
-  cv::Mat m1 = cv::Mat(8, 2, CV_32F, cv::Scalar(0, 0));
-  cv::Mat m2 = cv::Mat(8, 2, CV_32F, cv::Scalar(0, 0));
+  cv::Mat m1 = cv::Mat(360, 2, CV_32F, cv::Scalar(0, 0));
+  cv::Mat m2 = cv::Mat(360, 2, CV_32F, cv::Scalar(0, 0));
 
-  m1.at<float>(0, 0) = 16.8; m1.at<float>(0, 1) = 11.8;
-  m1.at<float>(1, 0) = 22.3; m1.at<float>(1, 1) = 7.4;
-  m1.at<float>(2, 0) = 30.5; m1.at<float>(2, 1) = 8.8;
-  m1.at<float>(3, 0) = 37.0; m1.at<float>(3, 1) = 12.4;
-  m1.at<float>(4, 0) = 44.8; m1.at<float>(4, 1) = 12.9;
-  m1.at<float>(5, 0) = 51.4; m1.at<float>(5, 1) = 12.3;
-  m1.at<float>(6, 0) = 56.2; m1.at<float>(6, 1) = 9.1;
-  m1.at<float>(7, 0) = 62.5; m1.at<float>(7, 1) = 6.8;
-
-  m2.at<float>(0, 0) = 3.2; m2.at<float>(0, 1) = 10.8;
-  m2.at<float>(1, 0) = 7.1; m2.at<float>(1, 1) = 19.3;
-  m2.at<float>(2, 0) = 16.6; m2.at<float>(2, 1) = 20.5;
-  m2.at<float>(3, 0) = 23.0; m2.at<float>(3, 1) = 18.1;
-  m2.at<float>(4, 0) = 30.8; m2.at<float>(4, 1) = 18.3;
-  m2.at<float>(5, 0) = 36.2; m2.at<float>(5, 1) = 22.0;
-  m2.at<float>(6, 0) = 44.1; m2.at<float>(6, 1) = 23.1;
-  m2.at<float>(7, 0) = 52.0; m2.at<float>(7, 1) = 21.5;
+  std::ifstream inFile;
+  inFile.open(
+  	"/home/wwa53/sfuhome/CMPT_742/Assignment/ws/src/icp_slam/src/points.csv");
+  if (!inFile) {
+    std::cerr << "Unable to Open the File!\n";
+    return 0;
+  }
+  float x;
+  int i = 0;
+  std::default_random_engine generator;
+  std::normal_distribution<double> distribution(0.0, 0.1);
+  while (inFile >> x) {
+  	m1.at<float>(i, 0) = x;
+  	m2.at<float>(i, 0) = x;
+  	m2.at<float>(i, 0) += distribution(generator);
+    inFile >> x;
+    m1.at<float>(i, 1) = x;
+    m2.at<float>(i, 1) = x;
+    m2.at<float>(i, 1) += distribution(generator);
+    i++;
+  }
+  inFile.close();
 
   tf::Transform inv_trans;
-  inv_trans.setOrigin(tf::Vector3(1.0, 1.0, 0.0));
-  inv_trans.setRotation(tf::Quaternion(0, 0, 0, 1));
-  cv::Mat m3 = utils::transformPointMat(inv_trans.inverse(), m1);
+  inv_trans.setOrigin(tf::Vector3(0.5, 1.5, 0.0));
+  inv_trans.setRotation(tf::createQuaternionFromYaw(0.2));
+  cv::Mat m3 = utils::transformPointMat(inv_trans, m2);
 
   tf::Transform initial_trans;
   initial_trans.setOrigin(tf::Vector3(0.0, 0.0, 0.0));
-  initial_trans.setRotation(tf::Quaternion(0, 0, 0, 1));
+  initial_trans.setRotation(tf::createQuaternionFromYaw(0));
 
   tf::Transform trans = slam.icpRegistration(m3, m1, initial_trans);
-  slam.vizClosestPoints(m1, m3, trans);
+  slam.vizClosestPoints(m3, m1, trans, "/tmp/icp_slam/viz_transformed.png");
+  slam.vizClosestPoints(m3, m1, initial_trans, "/tmp/icp_slam/viz_original.png");
   // Testing End.
 
   // ros::spin();

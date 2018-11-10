@@ -109,12 +109,14 @@ namespace icp_slam
      * @param point_mat2 Nx2 matrix with points of laser scan 2.
      * @param T_2_1 Estimated transform from scan1 to scan2 (T_scan2_scan1).
      * @param closest_indices Index of closest points from scan1 to scan2, -1
+     * @param file_path Path the visulization will be stored.
      * for invalid.
      */
     static void vizClosestPoints(
       cv::Mat &original_point_mat1,
       cv::Mat &original_point_mat2,
-      const tf::Transform &trans
+      const tf::Transform &trans,
+      std::string file_path = "/tmp/icp_slam/viz_closest_points.png"
     );
 
   protected:
