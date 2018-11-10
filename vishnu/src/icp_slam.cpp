@@ -12,6 +12,9 @@
 #include <icp_slam/icp_slam.h>
 #include <icp_slam/utils.h>
 #include <icp_slam/config.h>
+#include <iostream> 
+#include <string>
+using namespace std;
 
 #define TIME_DIFF(tic, toc) ((std::chrono::duration<double, std::milli>((toc) - (tic))).count())
 
@@ -54,11 +57,20 @@ bool ICPSlam::track(const sensor_msgs::LaserScanConstPtr &laser_scan,
   if (isCreateKeyframe(current_frame_tf_odom_laser,last_kf_tf_odom_laser_))
   {
     ROS_INFO("keyframe created");
-    auto T_2_1 = current_frame_tf_odom_laser.inverse()*last_kf_tf_odom_laser_;
+    auto T_2_1 = last_kf_tf_odom_laser_.inverse()*current_frame_tf_odom_laser;
     auto curr_point_mat_=utils::laserScanToPointMat(laser_scan);
-    tf::Transform map2laser=icpRegistration(last_kf_pc_mat_,curr_point_mat_,T_2_1);
-    last_kf_tf_odom_laser_ = current_frame_tf_odom_laser;
+    tf::Transform T2_to_point1=icpRegistration(last_kf_pc_mat_,curr_point_mat_,T_2_1);
+    tf::Transform tf_map_laser_out = last_kf_tf_map_laser_*T2_to_point1;
+    tf_map_laser=tf::StampedTransform(tf_map_laser_out,current_frame_tf_odom_laser.stamp_,"map",laser_scan->header.frame_id);
+    last_kf_tf_map_laser_=tf_map_laser;
+    last_kf_tf_odom_laser_=current_frame_tf_odom_laser; 
     last_kf_pc_mat_ = curr_point_mat_;
+  }
+  else
+  {
+    auto T_2_1 = last_kf_tf_odom_laser_.inverse()*current_frame_tf_odom_laser;
+    tf::Transform tf_map_laser_out = last_kf_tf_map_laser_*T_2_1;
+    tf_map_laser=tf::StampedTransform(tf_map_laser_out,current_frame_tf_odom_laser.stamp_,"map",laser_scan->header.frame_id);
   }
 
   // TODO: find the pose of laser in map frame
@@ -90,10 +102,12 @@ bool ICPSlam::isCreateKeyframe(const tf::StampedTransform &current_frame_tf, con
 
   auto last_kf_age = current_time - last_kf_time ;
 
+  ///ROS_INFO("distance : (%f), angle %f",distance,rotation_diff);
+
   
-  if ((distance > max_keyframes_distance_) ||(rotation_diff > max_keyframes_angle_)||(last_kf_age > max_keyframes_time_))
+  if ((distance > max_keyframes_distance_) ||(rotation_diff > max_keyframes_angle_))//||(last_kf_age > max_keyframes_time_))
   {
-    ROS_INFO("robot pose: (%f, %f), %f",current_x,current_y, current_rotation);
+    ///ROS_INFO("robot pose: (%f, %f), %f",current_x,current_y, current_rotation);
     return true;
   }
   else
@@ -164,11 +178,14 @@ void ICPSlam::closestPoints(cv::Mat &point_mat1,
 
 void ICPSlam::vizClosestPoints(cv::Mat &point_mat1,
                                cv::Mat &point_mat2,
-                               const tf::Transform &T_2_1)
+                               const tf::Transform &T_2_1,
+                               int iteration)
 {
   assert(point_mat1.size == point_mat2.size);
 
   const float resolution = 0.005;
+
+  string file_path ;
 
   float *float_array = (float*)(point_mat1.data);
   float size_m = std::accumulate(
@@ -222,7 +239,8 @@ void ICPSlam::vizClosestPoints(cv::Mat &point_mat1,
 
   cv::Mat tmp;
   cv::flip(img, tmp, 0);
-  cv::imwrite("/tmp/icp_laser.png", img);
+  file_path="/tmp/icp_laser"+std::to_string (iteration)+".png";
+  cv::imwrite(file_path, img);
 }
 
 tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
@@ -241,7 +259,7 @@ tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
   size_t vec_size;
   std::vector<int> closest_indices;
   std::vector<float> closest_distances_2;
-  int max_iterations = 10;
+  int max_iterations = 50;
   tfScalar last_x;
   tfScalar last_y;
   tfScalar last_r;
@@ -261,11 +279,12 @@ tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
   float dist_thres;
   cv::Mat transformed_point_mat2_;
   cv::Mat x_mean=cv::Mat(2,1,CV_32F);
-  cv::Mat p_mean=cv::Mat(2,1,CV_32F); 
+  cv::Mat p_mean=cv::Mat(2,1,CV_32F);
+  tf::Transform pose_transformation = T_2_1; 
   
 
 
-  for (int iter=0;iter<max_iterations;i++)
+  for (int iter=0;iter<max_iterations;iter++)
   {
     sum_1_x = 0.0;
     sum_2_x = 0.0;
@@ -275,16 +294,26 @@ tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
     sum_2_y = 0.0;
     mean_1_y = 0.0; 
     mean_2_y = 0.0;
-    transformed_point_mat2_ = utils::transformPointMat(T_2_1,point_mat2_);
+    transformed_point_mat2_ = utils::transformPointMat(pose_transformation,point_mat2_);
   
     // get the closest point correspondence
     ICPSlam::closestPoints(point_mat1_,transformed_point_mat2_,closest_indices,closest_distances_2);
 
-    for(i=0;i<50;i++)
-    {
-      ROS_INFO("index: (%i) = %i",i,closest_indices[i]);
-    }
+    // for(i=0;i<50;i++)
+    // {
+    //   ROS_INFO("index: (%i) = %i",i,closest_indices[i]);
+    // }
     //vizClosestPoints(point_mat1_,point_mat2_,T_2_1);
+    
+
+    //error
+    auto error=cv::sum(point_mat1_-transformed_point_mat2_)[0];
+    cout<<error<<endl;
+    if (std::abs(error)<1)
+    {
+      
+      return pose_transformation;
+    }
   
     //get inliers
     utils::meanAndStdDev(closest_distances_2,mean,std_dev);
@@ -350,8 +379,12 @@ tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
 
     }
 
+    cout<<icp_mat1.size()<<endl;
 
-    auto last_T_2_1 = T_2_1;
+    vizClosestPoints(icp_mat1,icp_mat2,pose_transformation,iter);
+
+
+    auto last_T_2_1 = pose_transformation;
 
     x_mean.at<float>(0,0)= mean_1_x;
     x_mean.at<float>(1,0)= mean_1_y;
@@ -359,24 +392,27 @@ tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
     p_mean.at<float>(0,0)= mean_2_x;
     p_mean.at<float>(1,0)= mean_2_y;
 
+    auto last_x = pose_transformation.getOrigin().getX();
+    auto last_y = pose_transformation.getOrigin().getY();
+    auto last_rotation = tf::getYaw(pose_transformation.getRotation()) * 180/M_PI;
 
-    tf::Transform T_2_1 = icpIteration(icp_mat1,icp_mat2,x_mean,p_mean);
+    ROS_INFO("ICP before iteration: (%f, %f), %f",last_x,last_y, last_rotation);
 
-    last_x = last_T_2_1.getOrigin().getX();
-    last_y = last_T_2_1.getOrigin().getY();
-    last_r = tf::getYaw(last_T_2_1.getRotation()) * 180/M_PI;
 
-    curr_x = T_2_1.getOrigin().getX();
-    curr_y = T_2_1.getOrigin().getY();
-    curr_r = tf::getYaw(T_2_1.getRotation()) * 180/M_PI;
+    pose_transformation = icpIteration(icp_mat1,icp_mat2,x_mean,p_mean);
 
-    if (last_x == curr_x && last_y ==curr_y && last_r==curr_r)
+    auto current_x = pose_transformation.getOrigin().getX();
+    auto current_y = pose_transformation.getOrigin().getY();
+    auto current_rotation = tf::getYaw(pose_transformation.getRotation()) * 180/M_PI;
+
+    ROS_INFO("ICP after iteration: (%f, %f), %f",current_x,current_y, current_rotation);
+    if ((last_x==current_x)&&(last_y==current_y)&&(last_rotation==current_rotation))
     {
-      return T_2_1;
+      return pose_transformation;
     }
   }
   //transform the point_cloud2 to point_cloud1 using initial odom pose
-return T_2_1;
+return pose_transformation;
 }
 
 tf::Transform ICPSlam::icpIteration(cv::Mat &point_mat1,
@@ -384,11 +420,13 @@ tf::Transform ICPSlam::icpIteration(cv::Mat &point_mat1,
                                     cv::Mat &x_mean,
                                     cv::Mat &p_mean)
 {
+  point_mat1 = point_mat1.t();
+  point_mat2 = point_mat2.t();
   cv::Mat W=cv::Mat::zeros(2,2,CV_32F);
-  int nrows=point_mat2.rows;
+  int nrows=point_mat2.cols;
   for (int i=0;i<nrows;i++)
   {
-    W=W+((point_mat1.row(i).t())*(point_mat2.row(i)));
+    W=point_mat1*(point_mat2.t());
   }
 
   cv::SVD svd(W);
@@ -402,6 +440,12 @@ tf::Transform ICPSlam::icpIteration(cv::Mat &point_mat1,
 
   new_T_2_1.setOrigin(tf::Vector3(T_matrix.at<float>(0,0),T_matrix.at<float>(1,0),0));
   new_T_2_1.setRotation(tf::createQuaternionFromYaw(rotation_angle));
+
+  auto current_x = new_T_2_1.getOrigin().getX();
+  auto current_y = new_T_2_1.getOrigin().getY();
+  auto current_rotation = tf::getYaw(new_T_2_1.getRotation()) * 180/M_PI;
+
+  ROS_INFO("ICP map robot pose: (%f, %f), %f",current_x,current_y, current_rotation);
 
   return new_T_2_1;
   
