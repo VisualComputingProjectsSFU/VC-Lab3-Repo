@@ -10,9 +10,32 @@ namespace icp_slam
 {
   namespace utils
   {
-    cv::Mat laserScanToPointMat(const sensor_msgs::LaserScanConstPtr &scan)
+    cv::Mat laserScanToPointMat(
+      const sensor_msgs::LaserScanConstPtr &laser_scan_ptr)
     {
-      // TODO:
+      sensor_msgs::LaserScan scan = *laser_scan_ptr;
+      int number_of_scan = 
+        (int)((scan.angle_max - scan.angle_min) / scan.angle_increment);
+      cv::Mat point_mat = cv::Mat(number_of_scan, 2, CV_32F);
+      float x, y;
+      auto teta = scan.angle_min;
+
+      for (int i = 0; i < number_of_scan; i++)
+      {
+        teta += scan.angle_increment;
+        if (scan.ranges[i] > scan.range_min && scan.ranges[i] < scan.range_max)
+        {
+          polarToCartesian(scan.ranges[i], teta , x, y);
+        }
+        else
+        {
+          x = 0.0;
+          y = 0.0;
+        }
+        point_mat.at<float>(i, 0) = x;
+        point_mat.at<float>(i, 1) = y;
+      }
+      return point_mat;
     }
 
     cv::Mat transformPointMat(tf::Transform transform, cv::Mat &point_mat)

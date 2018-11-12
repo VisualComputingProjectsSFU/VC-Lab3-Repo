@@ -149,23 +149,20 @@ void ICPSlamNode::publishMap(ros::Time timestamp)
   // map_publisher_.publish(occupancy_grid_);
 }
 
-int main(int argc, char **argv)
+void test()
 {
-  // ros::init(argc, argv, "icp_slam_node");
-  // ICPSlamNode icp_slam_node;
-
-  // Testing Start.
   icp_slam::ICPSlam slam(NULL, NULL, NULL);
 
   cv::Mat m1 = cv::Mat(360, 2, CV_32F, cv::Scalar(0, 0));
   cv::Mat m2 = cv::Mat(360, 2, CV_32F, cv::Scalar(0, 0));
 
+  // Read point cloud data from file.
   std::ifstream inFile;
   inFile.open(
   	"/home/wwa53/sfuhome/CMPT_742/Assignment/ws/src/icp_slam/src/points.csv");
   if (!inFile) {
     std::cerr << "Unable to Open the File!\n";
-    return 0;
+    return;
   }
   float x;
   int i = 0;
@@ -183,21 +180,27 @@ int main(int argc, char **argv)
   }
   inFile.close();
 
+  // Initial transformation differentiate m3 from m1.
   tf::Transform inv_trans;
   inv_trans.setOrigin(tf::Vector3(0.5, 1.5, 0.0));
   inv_trans.setRotation(tf::createQuaternionFromYaw(0.2));
   cv::Mat m3 = utils::transformPointMat(inv_trans, m2);
 
+  // Transformation simulate frame info passed by wheel encoder.
   tf::Transform initial_trans;
-  initial_trans.setOrigin(tf::Vector3(0.0, 0.0, 0.0));
-  initial_trans.setRotation(tf::createQuaternionFromYaw(0));
+  initial_trans.setOrigin(tf::Vector3(-0.3, 1.0, 0.0));
+  initial_trans.setRotation(tf::createQuaternionFromYaw(0.1));
 
-  tf::Transform trans = slam.icpRegistration(m3, m1, initial_trans);
+  // Testing ICP and plot the results.
+  tf::Transform trans = slam.icpRegistration(m3, m1, initial_trans.inverse());
   slam.vizClosestPoints(m3, m1, trans, "/tmp/icp_slam/viz_transformed.png");
   slam.vizClosestPoints(m3, m1, initial_trans, "/tmp/icp_slam/viz_original.png");
-  // Testing End.
+}
 
-  // ros::spin();
-
+int main(int argc, char **argv)
+{
+  ros::init(argc, argv, "icp_slam_node");
+  ICPSlamNode icp_slam_node;
+  ros::spin();
   return 0;
 }

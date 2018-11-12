@@ -54,17 +54,34 @@ namespace icp_slam
 
   bool ICPSlam::isCreateKeyframe(
     const tf::StampedTransform &current_frame_tf, 
-    const tf::StampedTransform &last_keyframe_tf) const
+    const tf::StampedTransform &previous_frame_tf) const
   {
     assert(
-      current_frame_tf.frame_id_ == last_keyframe_tf.frame_id_);
+      current_frame_tf.frame_id_ == previous_frame_tf.frame_id_);
     assert(
-      current_frame_tf.child_frame_id_ == last_keyframe_tf.child_frame_id_);
+      current_frame_tf.child_frame_id_ == previous_frame_tf.child_frame_id_);
 
-    // TODO: Check whether you want to create keyframe (based on 
-    // max_keyframes_distance_, max_keyframes_angle_, max_keyframes_time_).
+    float current_x = current_frame_tf.getOrigin().getX();
+    float current_y = current_frame_tf.getOrigin().getY();
+    float current_rotation = 
+      tf::getYaw(current_frame_tf.getRotation()) * 180 / M_PI;
 
-    return true;
+    float previous_x = previous_frame_tf.getOrigin().getX();
+    float previous_y = previous_frame_tf.getOrigin().getY();
+    float previous_rotation = 
+      tf::getYaw(previous_frame_tf.getRotation()) * 180 / M_PI;
+
+    float distance = 
+      sqrt(pow((previous_x - current_x), 2) + 
+        pow((previous_y - current_y), 2));
+    float rotation = abs(previous_rotation - current_rotation);
+   
+    if ((distance > max_keyframes_distance_) || 
+        (rotation > max_keyframes_angle_))
+    {
+      return true;
+    }
+    return false;
   }
 
   void ICPSlam::closestPoints(
@@ -343,16 +360,14 @@ namespace icp_slam
       final_trans *= predicted_trans;
       float sum = std::accumulate(
         closest_distances.begin(), closest_distances.end(), 0.0);
-      float error = std::abs(sum - previous_sum);
+      float error = std::abs(sum - previous_sum) / src.rows;
       previous_sum = sum;
 
-      // Closest distance is large when two sets cannot be matched perfectly.
-      // float error = *std::max_element(
-      //   closest_distances.begin(), closest_distances.end());
-
-      std::stringstream ss;
-      ss << "/tmp/icp_slam/" << std::to_string(counter) << ".png";
-      vizClosestPoints(src_original, dst_original, final_trans, ss.str());
+      // Save intermediate images.
+      // std::stringstream ss;
+      // ss << "/tmp/icp_slam/" << std::to_string(counter) << ".png";
+      // vizClosestPoints(src_original, dst_original, final_trans, ss.str());
+      
       if (error < threshold)
       {
         return final_trans;
