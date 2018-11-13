@@ -63,9 +63,7 @@ bool ICPSlam::track(const sensor_msgs::LaserScanConstPtr &laser_scan,
     auto rotation = -1*(tf::getYaw(T_2_1.getRotation()));
     T_2_1.setRotation(tf::createQuaternionFromYaw(rotation));
     tf::Transform T2_to_point1=icpRegistration(last_kf_pc_mat_,curr_point_mat_,T_2_1);
-    cout<<"============================================================================================================="<<endl;
-    cout<<T2_to_point1.getOrigin().getX()<<endl;
-    tf::Transform tf_map_laser_out = last_kf_tf_map_laser_*T2_to_point1;
+    tf::Transform tf_map_laser_out = last_kf_tf_odom_laser_*T2_to_point1;
     tf_map_laser=tf::StampedTransform(tf_map_laser_out,current_frame_tf_odom_laser.stamp_,"map",laser_scan->header.frame_id);
     last_kf_tf_map_laser_=tf_map_laser;
     last_kf_tf_odom_laser_=current_frame_tf_odom_laser; 
@@ -83,7 +81,7 @@ bool ICPSlam::track(const sensor_msgs::LaserScanConstPtr &laser_scan,
   // if a new keyframe is created, run ICP
   // if not a keyframe, obtain the laser pose in map frame based on odometry update
   is_tracker_running_=false;
-  return false;
+  return true;
 }
 
 bool ICPSlam::isCreateKeyframe(const tf::StampedTransform &current_frame_tf, const tf::StampedTransform &last_kf_tf) const
@@ -111,7 +109,7 @@ bool ICPSlam::isCreateKeyframe(const tf::StampedTransform &current_frame_tf, con
   ///ROS_INFO("distance : (%f), angle %f",distance,rotation_diff);
 
   
-  if ((distance > max_keyframes_distance_) ||(rotation_diff > max_keyframes_angle_)||(last_kf_age > max_keyframes_time_))
+  if ((distance > max_keyframes_distance_)||(rotation_diff > max_keyframes_angle_)||(last_kf_age > max_keyframes_time_))
   {
     ///ROS_INFO("robot pose: (%f, %f), %f",current_x,current_y, current_rotation);
     return true;
@@ -247,7 +245,7 @@ void ICPSlam::vizClosestPoints(cv::Mat &point_mat1,
   cv::flip(img, tmp, 0);
   file_path="/tmp/icp_laser_kf"+std::to_string (keyframe_count_)+"it"+std::to_string(iteration)+".png";
   cout<<file_path<<endl;
-  cv::imwrite(file_path, img);
+  //cv::imwrite(file_path, img);
 }
 
 tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
@@ -356,10 +354,6 @@ tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
     if (std::abs(error)<1)
     {
       cout<<"error returned"<<endl;
-      if ((init_x < 0.1)&&(init_y < 0.1))
-      {
-        pose_transformation.setOrigin(tf::Vector3(0,0,0));
-      }
       return pose_transformation;
     }
 
@@ -458,18 +452,10 @@ tf::Transform ICPSlam::icpRegistration(const cv::Mat &last_point_mat,
     ROS_INFO("ICP after iteration: (%f, %f), %f",current_x,current_y, current_rotation);
     if (abs(last_x-current_x)<0.01&&abs(last_y-current_y)<0.01&&abs(last_rotation-current_rotation)<0.01)
     {
-      if ((init_x < 0.1)&&(init_y < 0.1))
-      {
-        pose_transformation.setOrigin(tf::Vector3(0,0,0));
-      }
       return pose_transformation;
     }
   }
   //transform the point_cloud2 to point_cloud1 using initial odom pose
-  if ((init_x < 0.1)&&(init_y < 0.1))
-      {
-        pose_transformation.setOrigin(tf::Vector3(0,0,0));
-      }
 return pose_transformation;
 }
 
